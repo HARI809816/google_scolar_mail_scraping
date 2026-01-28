@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+
+# Project specific
+scholar_cookies.pkl
+scholar_debug.html
+*.xlsx
+
+# Office temp files
+~$*
