@@ -28,6 +28,7 @@ import asyncio
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
+from fastapi.middleware.cors import CORSMiddleware
 
 # Lock for thread-safe printing and file writing
 print_lock = threading.Lock()
@@ -349,27 +350,57 @@ class GoogleScholarScraper:
 
     def get_new_driver(self):
         """Create a new driver instance for a thread"""
+
+        # REQUIRED FOR DOCKER / RENDER
+        self.chrome_options.binary_location = os.environ.get(
+            "CHROME_BIN", "/usr/bin/chromium"
+        )
+
+        # REQUIRED FLAGS
+        self.chrome_options.add_argument("--no-sandbox")
+        self.chrome_options.add_argument("--disable-dev-shm-usage")
+        self.chrome_options.add_argument("--disable-gpu")
+        self.chrome_options.add_argument("--window-size=1920,1080")
+        #self.chrome_options.add_argument("--headless=new")
+
         try:
-            service = Service(ChromeDriverManager().install())
+            service = Service(
+                os.environ.get("CHROMEDRIVER_BIN", "/usr/bin/chromedriver")
+            )
             driver = webdriver.Chrome(service=service, options=self.chrome_options)
-        except:
-            driver = webdriver.Chrome(options=self.chrome_options)
-        driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-            "userAgent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-        })
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        # Load cookies if available
+        except Exception as e:
+            raise RuntimeError(f"Chrome failed to start: {e}")
+
+        # 🔒 Anti-detection tweaks (SAFE)
+        driver.execute_cdp_cmd(
+            "Network.setUserAgentOverride",
+            {
+                "userAgent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                )
+            },
+        )
+
+        driver.execute_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
+
+        # 🍪 Load cookies if available
         if os.path.exists(self.cookies_file):
             try:
-                driver.get("https://scholar.google.com")  # Need to be on domain to set cookies
+                driver.get("https://scholar.google.com")
                 with open(self.cookies_file, "rb") as f:
                     cookies = pickle.load(f)
                 for cookie in cookies:
                     driver.add_cookie(cookie)
                 driver.refresh()
-            except Exception as e:
+            except Exception:
                 pass
+
         return driver
+
 
     def human_delay(self, min_sec=1.5, max_sec=3):
         """Reduced delay for speed"""
@@ -915,6 +946,14 @@ class GoogleScholarScraper:
 # ========================
 
 app = FastAPI(title="Google Scholar Email Scraper API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # allow all origins (safe for internal tools)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class ScrapeRequest(BaseModel):
     topic: str
